@@ -44,8 +44,8 @@ public class ClickHouseSchemaInitializer implements ApplicationRunner {
                 volume          UInt64,
                 oi              UInt64 DEFAULT 0
             )
-            ENGINE = ReplacingMergeTree(ts)
-            PARTITION BY (interval, toYYYYMM(ts))
+            ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(ts)
             ORDER BY (instrument_id, interval, ts)
             SETTINGS index_granularity = 8192
         """);

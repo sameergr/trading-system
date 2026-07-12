@@ -64,7 +64,7 @@ public class InstrumentManagementRepository {
                 count()                             AS cnt,
                 toString(toDate(min(ts)))           AS min_date,
                 toString(toDate(max(ts)))           AS max_date
-            FROM trading.candles FINAL
+            FROM trading.candles
             WHERE instrument_id = ? AND interval = ?
             """,
             (rs, i) -> new CandleStats(

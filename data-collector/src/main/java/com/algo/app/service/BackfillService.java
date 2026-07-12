@@ -191,65 +191,52 @@ public class BackfillService {
      * They are derived in Step 3 by DerivedCandleService.aggregateNow().
      */
     private BackfillResult backfillDaily(Instrument instrument) {
-        List<String> keys = List.of("1D", "1W", "1M");
-        for (String key : keys) {
-            progressRepository.resetStaleInProgress(instrument.getSecurityId(), key);
-            LocalDate end = LocalDate.now();
-            LocalDate start = end.minusYears(properties.getBackfill().getYearsBack());
+        String key = "1D";
+        progressRepository.resetStaleInProgress(instrument.getSecurityId(), key);
+        
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusYears(properties.getBackfill().getYearsBack());
 
-            LocalDate fetchFrom = switch(key) {
-                case "1D" -> progressRepository
-                        .getLastCompletedDate(instrument.getSecurityId(), key)
-                        .map(d -> d.plusDays(1))
-                        .orElse(start);
-                case "1W" -> progressRepository
-                        .getLastCompletedDate(instrument.getSecurityId(), key)
-                        .map(d -> d.plusWeeks(1))
-                        .orElse(start);
-                case "1M" -> progressRepository
-                        .getLastCompletedDate(instrument.getSecurityId(), key)
-                        .map(d -> d.plusMonths(1))
-                        .orElse(start);
-                default -> throw new IllegalArgumentException("Unknown interval key: " + key);
-            };
+        LocalDate fetchFrom = progressRepository
+                .getLastCompletedDate(instrument.getSecurityId(), key)
+                .map(d -> d.plusDays(1))
+                .orElse(start);
 
-            if (!fetchFrom.isBefore(end)) {
-                log.info("✓ {}/1d already complete", instrument.getSymbol());
-                return new BackfillResult(0, 1, 0);
-            }
+        if (!fetchFrom.isBefore(end)) {
+            log.info("✓ {}/1D already complete", instrument.getSymbol());
+            return new BackfillResult(0, 1, 0);
+        }
 
-            log.info("▶ {}/1d fetching {} → {}", instrument.getSymbol(), fetchFrom, end);
+        log.info("▶ {}/1D fetching {} → {}", instrument.getSymbol(), fetchFrom, end);
 
-            try {
-                progressRepository.markInProgress(instrument.getSecurityId(), key, fetchFrom, end);
+        try {
+            progressRepository.markInProgress(instrument.getSecurityId(), key, fetchFrom, end);
 
-                DhanCandleResponse response = dhanApiClient.fetchDaily(instrument, fetchFrom, end);
-                List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, key);
+            DhanCandleResponse response = dhanApiClient.fetchDaily(instrument, fetchFrom, end);
+            List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, key);
 
-                if (candles.isEmpty()) {
-                    log.warn("  ⚠ {}/1d returned 0 candles — check securityId={} exchangeSegment={} instrumentType={}",
-                            instrument.getSymbol(),
-                            instrument.getSecurityId(),
-                            instrument.getExchangeSegment(),
-                            instrument.getInstrumentType());
-                    // Mark as failed so it retries on next run rather than being silently skipped
-                    progressRepository.markFailed(instrument.getSecurityId(), key, fetchFrom, end);
-                    return new BackfillResult(0, 0, 1);
-                }
-
-                int inserted = candleRepository.batchInsert(candles);
-                progressRepository.markDone(instrument.getSecurityId(), key, fetchFrom, end, inserted);
-                log.info("  ✓ {}/1d inserted {} candles ({} → {})",
-                        instrument.getSymbol(), inserted, candles.get(0).getTs(), candles.get(candles.size() - 1).getTs());
-                return new BackfillResult(inserted, 0, 0);
-
-            } catch (Exception e) {
-                log.error("  ✗ {}/1d fetch failed", instrument.getSymbol(), e);
+            if (candles.isEmpty()) {
+                log.warn("  ⚠ {}/1D returned 0 candles — check securityId={} exchangeSegment={} instrumentType={}",
+                        instrument.getSymbol(),
+                        instrument.getSecurityId(),
+                        instrument.getExchangeSegment(),
+                        instrument.getInstrumentType());
+                // Mark as failed so it retries on next run rather than being silently skipped
                 progressRepository.markFailed(instrument.getSecurityId(), key, fetchFrom, end);
                 return new BackfillResult(0, 0, 1);
             }
+
+            int inserted = candleRepository.batchInsert(candles);
+            progressRepository.markDone(instrument.getSecurityId(), key, fetchFrom, end, inserted);
+            log.info("  ✓ {}/1D inserted {} candles ({} → {})",
+                    instrument.getSymbol(), inserted, candles.get(0).getTs(), candles.get(candles.size() - 1).getTs());
+            return new BackfillResult(inserted, 0, 0);
+
+        } catch (Exception e) {
+            log.error("  ✗ {}/1D fetch failed", instrument.getSymbol(), e);
+            progressRepository.markFailed(instrument.getSecurityId(), key, fetchFrom, end);
+            return new BackfillResult(0, 0, 1);
         }
-        return null;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

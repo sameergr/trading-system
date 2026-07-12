@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -33,41 +34,64 @@ public class CandleRepository {
      * This method builds one INSERT ... VALUES (row1), (row2), ... (rowN) string
      * and executes it as a single HTTP request → single Part → no throttling.
      *
-     * Safe for 5000-6000 rows (typical daily backfill). For intraday chunks of
-     * similar size this is also fine. SQL length stays well under ClickHouse's
+     * Partition handling:
+     *   Table is partitioned by toYYYYMM(ts). If the batch spans many months, 
+     *   ClickHouse may reject it with "Too many partitions per insert block".
+     *   We split large batches by month to stay under the limit.
+     *
+     * Safe for 5000-6000 rows per month. SQL length stays well under ClickHouse's
      * max_query_size default of 256MB.
      */
     public int batchInsert(List<Candle> candles) {
         if (candles.isEmpty()) return 0;
 
-        String values = candles.stream()
-                .map(c -> String.format("(%d,'%s','%s','%s',%s,%s,%s,%s,%d,%d)",
-                        c.getInstrumentId(),
-                        c.getSymbol().replace("'", "\\'"),
-                        c.getInterval(),
-                        Timestamp.valueOf(c.getTs()),
-                        c.getOpen(),
-                        c.getHigh(),
-                        c.getLow(),
-                        c.getClose(),
-                        c.getVolume(),
-                        c.getOi()
-                ))
-                .collect(Collectors.joining(","));
+        // Group by year-month to avoid too many partitions in single INSERT
+        Map<String, List<Candle>> byMonth = candles.stream()
+                .collect(Collectors.groupingBy(c -> 
+                    String.format("%d-%02d", 
+                        c.getTs().getYear(), 
+                        c.getTs().getMonthValue()
+                    )
+                ));
 
-        jdbcTemplate.execute(
-                "INSERT INTO trading.candles " +
-                        "(instrument_id, symbol, interval, ts, open, high, low, close, volume, oi) " +
-                        "VALUES " + values
-        );
+        int totalInserted = 0;
+        
+        for (Map.Entry<String, List<Candle>> entry : byMonth.entrySet()) {
+            String month = entry.getKey();
+            List<Candle> monthCandles = entry.getValue();
+            
+            String values = monthCandles.stream()
+                    .map(c -> String.format("(%d,'%s','%s','%s',%s,%s,%s,%s,%d,%d)",
+                            c.getInstrumentId(),
+                            c.getSymbol().replace("'", "\\'"),
+                            c.getInterval(),
+                            Timestamp.valueOf(c.getTs()),
+                            c.getOpen(),
+                            c.getHigh(),
+                            c.getLow(),
+                            c.getClose(),
+                            c.getVolume(),
+                            c.getOi()
+                    ))
+                    .collect(Collectors.joining(","));
 
-        log.info("Inserted {} candles into trading.candles", candles.size());
-        return candles.size();
+            jdbcTemplate.execute(
+                    "INSERT INTO trading.candles " +
+                            "(instrument_id, symbol, interval, ts, open, high, low, close, volume, oi) " +
+                            "VALUES " + values
+            );
+
+            log.debug("Inserted {} candles for month {} into trading.candles", monthCandles.size(), month);
+            totalInserted += monthCandles.size();
+        }
+
+        log.info("Inserted {} candles total across {} month(s)", totalInserted, byMonth.size());
+        return totalInserted;
     }
 
     public long countCandles(long instrumentId, String interval) {
         Long count = jdbcTemplate.queryForObject(
-                "SELECT count() FROM trading.candles FINAL WHERE instrument_id = ? AND interval = ?",
+                "SELECT count() FROM trading.candles WHERE instrument_id = ? AND interval = ?",
                 Long.class,
                 instrumentId, interval
         );
@@ -79,7 +103,7 @@ public class CandleRepository {
             SELECT
                 toDate(min(ts)) AS min_date,
                 toDate(max(ts)) AS max_date
-            FROM trading.candles FINAL
+            FROM trading.candles 
             WHERE instrument_id = ?
               AND interval      = ?
             """,
@@ -93,7 +117,7 @@ public class CandleRepository {
 
     public List<CandleDto> findCandles(long instrumentId, String interval,
                                        LocalDate from, LocalDate to) {
-        log.debug("Querying candles: instrumentId={} interval={} from={} to={}",
+        log.info("Querying candles: instrumentId={} interval={} from={} to={}",
                 instrumentId, interval, from, to);
 
         return jdbcTemplate.query("""
@@ -104,11 +128,11 @@ public class CandleRepository {
                 low,
                 close,
                 volume
-            FROM trading.candles FINAL
+            FROM trading.candles 
             WHERE instrument_id = ?
               AND interval      = ?
-              AND ts            >= toDateTime(?, 'Asia/Kolkata')
-              AND ts            <= toDateTime(?, 'Asia/Kolkata')
+              AND toDate(ts)    >= toDate(?)
+              AND toDate(ts)    <= toDate(?)
             ORDER BY ts ASC
             """,
                 (rs, i) -> CandleDto.builder()
@@ -121,15 +145,15 @@ public class CandleRepository {
                         .build(),
                 instrumentId,
                 interval,
-                from.atStartOfDay().toString(),
-                to.atTime(23, 59, 59).toString()
+                from.toString(),
+                to.toString()
         );
     }
 
     public List<InstrumentDto> findAllInstruments() {
         return jdbcTemplate.query("""
             SELECT DISTINCT security_id, symbol, exchange_segment
-            FROM trading.instruments FINAL
+            FROM trading.instruments 
             WHERE active = 1
             ORDER BY symbol ASC
             """,

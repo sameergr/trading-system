@@ -93,7 +93,7 @@ curl "http://localhost:8080/api/backfill/count?instrumentId=11536&interval=5m"
 Or directly in ClickHouse:
 ```sql
 SELECT count(), min(ts), max(ts)
-FROM trading.candles FINAL
+FROM trading.candles
 WHERE instrument_id = 11536 AND interval = '5m';
 ```
 
