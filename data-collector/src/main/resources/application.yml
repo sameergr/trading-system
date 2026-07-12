@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: dhan-collector
+
+  datasource:
+    url: jdbc:clickhouse://localhost:8123/trading
+    driver-class-name: com.clickhouse.jdbc.ClickHouseDriver
+    username: admin
+    password: "admin123"
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  quartz:
+    job-store-type: memory
+    properties:
+      org.quartz.threadPool.threadCount: 5
+
+# Dhan API Configuration
+dhan:
+  api:
+    base-url: https://api.dhan.co/v2
+    access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiZTkxNWVhbjUiLCJicm9hZGNhc3RfZmxhZyI6dHJ1ZSwiZXhwIjoxNzgzODAyOTgzLCJ0b2tlbkNvbnN1bWVyVHlwZSI6IlBBUlRORVIiLCJkaGFuQ2xpZW50SWQiOiIxMTA0NzU2MTQ1In0.EcwNtGiDkRdXflivnulLbXIfwK-F1zYtS9vRIS6F0_1QIWAUa5EbeAaFiNF0__MAwB3iUt_fg9Z9t77BRpubSQ
+    timeout-seconds: 30
+    max-retries: 3
+  collector:
+    url: http://localhost:8080
+
+# Backfill configuration
+backfill:
+  years-back: 5                          # how far back to fetch
+  chunk-days: 85                         # safe below 90-day API limit
+  instruments-file: classpath:instruments.csv
+  intervals:
+    - 1
+    - 5
+    - 15
+    - 60
+  batch-insert-size: 5000               # rows per ClickHouse insert
+
+# Rate limiter (Dhan allows generous limits but be safe)
+resilience4j:
+  ratelimiter:
+    instances:
+      dhan-api:
+        limit-for-period: 5
+        limit-refresh-period: 1s
+        timeout-duration: 10s
+
+# Incremental refresh schedule (runs after market close)
+scheduler:
+  incremental-cron: "0 30 15 * * MON-FRI"   # 3:30 PM IST weekdays
+
+logging:
+  level:
+    com.dhan.collector: DEBUG
+    org.springframework: INFO
+
+server:
+  port: 8080
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# Allow Angular dev server to call this API
+cors:
+  allowed-origins: "http://localhost:4200"
