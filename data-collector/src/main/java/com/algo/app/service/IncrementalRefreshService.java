@@ -58,7 +58,7 @@ public class IncrementalRefreshService {
             // Daily candles use a separate endpoint
             try {
                 DhanCandleResponse response = dhanApiClient.fetchDaily(instrument, today, today);
-                List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, "1d");
+                List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, "1D");
                 if (!candles.isEmpty()) {
                     candleRepository.batchInsert(candles);
                     log.info("Refreshed {} daily candles for {}", candles.size(), instrument.getSymbol());

@@ -15,6 +15,8 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -46,7 +48,7 @@ public class DhanApiClient {
                 .exchangeSegment(instrument.getExchangeSegment())
                 .instrument(instrument.getInstrumentType())
                 .interval(intervalMinutes)
-                .oi(true)
+                .oi(false)
                 .fromDate(fromStr)
                 .toDate(toStr)
                 .build();
@@ -62,31 +64,46 @@ public class DhanApiClient {
                         .bodyToMono(DhanCandleResponse.class)
                         .retryWhen(Retry.backoff(properties.getApi().getMaxRetries(), Duration.ofSeconds(2))
                                 .filter(ex -> ex instanceof WebClientResponseException.TooManyRequests
-                                        || ex instanceof WebClientResponseException.ServiceUnavailable))
+                                           || ex instanceof WebClientResponseException.ServiceUnavailable))
                         .timeout(Duration.ofSeconds(properties.getApi().getTimeoutSeconds()))
                         .block()
         ).get();
     }
 
+    // ── Daily (1d) ────────────────────────────────────────────────────────────
+
     /**
-     * Fetch daily candles (can go back to stock inception).
+     * Fetch daily candles via /v2/charts/historical.
+     *
+     * Key differences from intraday:
+     *  - Different endpoint: /charts/historical (not /charts/intraday)
+     *  - Date format: yyyy-MM-dd (not yyyy-MM-dd HH:mm:ss)
+     *  - No interval field — this endpoint always returns daily candles
+     *  - expiryCode only included for F&O instruments — sending it for equity
+     *    causes Dhan to return an empty response silently
+     *  - oi flag omitted — not applicable for daily equity data
      */
     public DhanCandleResponse fetchDaily(Instrument instrument,
                                          LocalDate from,
                                          LocalDate to) {
-        var request = new java.util.HashMap<String, Object>();
-        request.put("securityId", String.valueOf(instrument.getSecurityId()));
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("securityId",      String.valueOf(instrument.getSecurityId()));
         request.put("exchangeSegment", instrument.getExchangeSegment());
-        request.put("instrument", instrument.getInstrumentType());
-        request.put("expiryCode", 0);
-        request.put("oi", false);
-        request.put("fromDate", from.format(DAILY_FMT));
-        request.put("toDate", to.format(DAILY_FMT));
+        request.put("instrument",      instrument.getInstrumentType());
+        request.put("fromDate",        from.format(DAILY_FMT));
+        request.put("toDate",          to.format(DAILY_FMT));
 
-        log.debug("Fetching daily candles for {} from {} to {}",
-                instrument.getSymbol(), from, to);
+        // expiryCode is required only for F&O — omitting it for equity
+        // avoids the silent-empty-response bug in Dhan's API
+        if (isFnO(instrument)) {
+            request.put("expiryCode", 0);
+        }
 
-        return RateLimiter.decorateSupplier(dhanRateLimiter, () ->
+        log.info("Fetching 1D candles: symbol={} exchange={} type={} from={} to={}",
+                instrument.getSymbol(), instrument.getExchangeSegment(),
+                instrument.getInstrumentType(), from, to);
+
+        DhanCandleResponse response = RateLimiter.decorateSupplier(dhanRateLimiter, () ->
                 dhanWebClient.post()
                         .uri("/charts/historical")
                         .bodyValue(request)
@@ -97,5 +114,28 @@ public class DhanApiClient {
                         .timeout(Duration.ofSeconds(properties.getApi().getTimeoutSeconds()))
                         .block()
         ).get();
+
+        int count = (response != null) ? response.size() : 0;
+        log.info("1D response: symbol={} candles={}", instrument.getSymbol(), count);
+
+        if (count == 0) {
+            log.warn("1D returned 0 candles for {} [{} → {}]. " +
+                     "Verify: securityId={}, exchangeSegment={}, instrumentType={}",
+                    instrument.getSymbol(), from, to,
+                    instrument.getSecurityId(),
+                    instrument.getExchangeSegment(),
+                    instrument.getInstrumentType());
+        }
+
+        return response;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private boolean isFnO(Instrument instrument) {
+        String seg  = instrument.getExchangeSegment().toUpperCase();
+        String type = instrument.getInstrumentType().toUpperCase();
+        return seg.contains("FNO") || seg.contains("IDX")
+            || type.startsWith("FUT") || type.startsWith("OPT");
     }
 }

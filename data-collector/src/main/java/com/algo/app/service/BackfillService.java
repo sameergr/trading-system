@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -30,31 +29,30 @@ public class BackfillService {
     private final InstrumentService instrumentService;
     private final DhanProperties properties;
 
-    // Injected via setter to avoid circular dependency (DerivedCandleService → BackfillService loop)
     private DerivedCandleService derivedCandleService;
 
-    public void setDerivedCandleService(DerivedCandleService derivedCandleService) {
-        this.derivedCandleService = derivedCandleService;
+    public void setDerivedCandleService(DerivedCandleService svc) {
+        this.derivedCandleService = svc;
     }
 
     private volatile boolean running = false;
 
     /**
-     * Full backfill flow:
-     *  1. Fetch intraday candles (1m, 5m, 15m, 60m) — chunked 85-day windows per instrument
-     *  2. Fetch daily candles (1d) — single call per instrument, full history
-     *  3. Derive weekly (1W) and monthly (1M) — ClickHouse aggregation from 1d data
+     * Full backfill:
+     *   Step 1 — Intraday (1m, 5m, 15m, 60m) via /charts/intraday, 85-day chunks
+     *   Step 2 — Daily   (1d)                 via /charts/historical, single call
+     *   Step 3 — Weekly  (1W) + Monthly (1M)  derived from 1d via ClickHouse aggregation
      *
-     * Resume: skips already-DONE chunks using the backfill_progress table.
-     * Dedup:  ReplacingMergeTree handles duplicate rows silently.
+     * 1W and 1M are NEVER fetched from Dhan — Dhan has no such endpoint.
+     * They are computed entirely from stored 1d rows by DerivedCandleService.
      */
     public void runBackfill() {
         if (running) {
-            log.warn("Backfill already in progress, skipping trigger.");
+            log.warn("Backfill already in progress, skipping.");
             return;
         }
-
         running = true;
+
         log.info("╔══════════════════════════════════════╗");
         log.info("║        BACKFILL STARTING             ║");
         log.info("╚══════════════════════════════════════╝");
@@ -64,47 +62,45 @@ public class BackfillService {
         AtomicInteger totalFailed   = new AtomicInteger(0);
 
         List<Instrument> instruments = instrumentService.getAllInstruments();
+        log.info("Instruments to backfill: {}", instruments.size());
 
         try {
             for (Instrument instrument : instruments) {
+                log.info("── Starting instrument: {} (id={}) ──",
+                        instrument.getSymbol(), instrument.getSecurityId());
 
-                // Step 1: Intraday intervals (1m, 5m, 15m, 60m)
-                for (int intervalMinutes : properties.getBackfill().getIntervals()) {
-                    CandleInterval interval;
+                // ── Step 1: Intraday ────────────────────────────────────────
+                for (String interval : properties.getBackfill().getIntervals()) {
+                    CandleInterval candleInterval;
                     try {
-                        interval = CandleInterval.fromMinutes(intervalMinutes);
+                        candleInterval = CandleInterval.fromInterval(interval);
                     } catch (IllegalArgumentException e) {
-                        log.warn("Unknown interval {}min in config — skipping", intervalMinutes);
+                        log.warn("Unknown interval {}min — skipping", interval);
                         continue;
                     }
+                    if (!candleInterval.isFetchable()) continue;
 
-                    if (!interval.isFetchable()) {
-                        log.debug("Skipping derived interval {} — will be aggregated after daily fetch",
-                                interval.getClickhouseValue());
-                        continue;
-                    }
-
-                    BackfillResult result = backfillIntraday(instrument, interval);
-                    totalInserted.addAndGet(result.inserted());
-                    totalSkipped.addAndGet(result.skipped());
-                    totalFailed.addAndGet(result.failed());
+                    BackfillResult r = backfillIntraday(instrument, candleInterval);
+                    totalInserted.addAndGet(r.inserted());
+                    totalSkipped.addAndGet(r.skipped());
+                    totalFailed.addAndGet(r.failed());
                 }
 
-                // Step 2: Daily candles (1d) — separate endpoint, no chunk restriction
-                BackfillResult dailyResult = backfillDaily(instrument);
-                totalInserted.addAndGet(dailyResult.inserted());
-                totalSkipped.addAndGet(dailyResult.skipped());
-                totalFailed.addAndGet(dailyResult.failed());
+                // ── Step 2: Daily (1d) ─────────────────────────────────────
+                BackfillResult r = backfillDaily(instrument);
+                totalInserted.addAndGet(r.inserted());
+                totalSkipped.addAndGet(r.skipped());
+                totalFailed.addAndGet(r.failed());
             }
 
-            // Step 3: Derive 1W and 1M from the 1d data we just inserted
-            // This must run AFTER all daily candles are inserted across all instruments
-            log.info("▶ Deriving 1W and 1M candles from daily data...");
+            // ── Step 3: Derive 1W and 1M from stored 1d rows ───────────────
+            // Must run AFTER all instruments' 1d candles are inserted.
+            log.info("══ Step 3: Deriving 1W and 1M from 1d data ══");
             if (derivedCandleService != null) {
                 derivedCandleService.aggregateNow();
+                log.info("✓ 1W and 1M derived successfully.");
             } else {
-                log.warn("DerivedCandleService not wired — skipping 1W/1M aggregation. " +
-                         "Call POST /api/backfill/derive manually.");
+                log.warn("DerivedCandleService not wired. Call POST /api/backfill/derive manually.");
             }
 
         } finally {
@@ -112,63 +108,54 @@ public class BackfillService {
         }
 
         log.info("╔══════════════════════════════════════╗");
-        log.info("║        BACKFILL COMPLETE             ║");
-        log.info("║  Inserted : {}",        totalInserted.get());
-        log.info("║  Skipped  : {} (done)", totalSkipped.get());
-        log.info("║  Failed   : {} chunks", totalFailed.get());
+        log.info("║  BACKFILL COMPLETE                   ║");
+        log.info("║  Inserted : {}",  totalInserted.get());
+        log.info("║  Skipped  : {}",  totalSkipped.get());
+        log.info("║  Failed   : {}",  totalFailed.get());
         log.info("╚══════════════════════════════════════╝");
     }
 
-    // ── Intraday (1m, 5m, 15m, 60m) ──────────────────────────────────────────
+    // ── Intraday ──────────────────────────────────────────────────────────────
 
     private BackfillResult backfillIntraday(Instrument instrument, CandleInterval interval) {
-        String intervalKey = interval.getClickhouseValue();
+        String key = interval.getClickhouseValue();
+        progressRepository.resetStaleInProgress(instrument.getSecurityId(), key);
 
-        progressRepository.resetStaleInProgress(instrument.getSecurityId(), intervalKey);
+        LocalDate end   = LocalDate.now();
+        LocalDate start = end.minusYears(properties.getBackfill().getYearsBack());
 
-        LocalDate globalEnd   = LocalDate.now();
-        LocalDate globalStart = globalEnd.minusYears(properties.getBackfill().getYearsBack());
-
-        Optional<LocalDate> lastDone = progressRepository.getLastCompletedDate(
-                instrument.getSecurityId(), intervalKey);
-
-        LocalDate resumeFrom = lastDone
+        LocalDate resumeFrom = progressRepository
+                .getLastCompletedDate(instrument.getSecurityId(), key)
                 .map(d -> d.plusDays(1))
-                .orElse(globalStart);
+                .orElse(start);
 
-        if (!resumeFrom.isBefore(globalEnd)) {
-            log.info("✓ {}/{} already fully backfilled up to {}",
-                    instrument.getSymbol(), intervalKey, globalEnd);
+        if (!resumeFrom.isBefore(end)) {
+            log.info("✓ {}/{} already complete", instrument.getSymbol(), key);
             return new BackfillResult(0, 1, 0);
         }
 
-        log.info("▶ Backfilling {}/{} | {} → {} (resuming from {})",
-                instrument.getSymbol(), intervalKey, globalStart, globalEnd, resumeFrom);
+        log.info("▶ {}/{} resuming from {}", instrument.getSymbol(), key, resumeFrom);
 
         int chunkDays = properties.getBackfill().getChunkDays();
         List<Candle> buffer = new ArrayList<>();
         int inserted = 0, skipped = 0, failed = 0;
         LocalDate chunkStart = resumeFrom;
 
-        while (chunkStart.isBefore(globalEnd)) {
+        while (chunkStart.isBefore(end)) {
             LocalDate chunkEnd = chunkStart.plusDays(chunkDays - 1);
-            if (chunkEnd.isAfter(globalEnd)) chunkEnd = globalEnd;
+            if (chunkEnd.isAfter(end)) chunkEnd = end;
 
-            if (progressRepository.isChunkDone(
-                    instrument.getSecurityId(), intervalKey, chunkStart, chunkEnd)) {
-                log.debug("  skip (already done): {} → {}", chunkStart, chunkEnd);
+            if (progressRepository.isChunkDone(instrument.getSecurityId(), key, chunkStart, chunkEnd)) {
                 skipped++;
                 chunkStart = chunkEnd.plusDays(1);
                 continue;
             }
 
             try {
-                progressRepository.markInProgress(
-                        instrument.getSecurityId(), intervalKey, chunkStart, chunkEnd);
+                progressRepository.markInProgress(instrument.getSecurityId(), key, chunkStart, chunkEnd);
 
                 DhanCandleResponse response = dhanApiClient.fetchIntraday(
                         instrument, interval.getDhanApiValue(), chunkStart, chunkEnd);
-
                 List<Candle> candles = candleMapper.map(response, instrument, interval);
                 buffer.addAll(candles);
 
@@ -177,17 +164,12 @@ public class BackfillService {
                     buffer.clear();
                 }
 
-                progressRepository.markDone(
-                        instrument.getSecurityId(), intervalKey, chunkStart, chunkEnd, candles.size());
-
-                log.info("  ✓ {}/{} {} → {} | {} candles",
-                        instrument.getSymbol(), intervalKey, chunkStart, chunkEnd, candles.size());
+                progressRepository.markDone(instrument.getSecurityId(), key, chunkStart, chunkEnd, candles.size());
+                log.info("  ✓ {}/{} {} → {} | {} candles", instrument.getSymbol(), key, chunkStart, chunkEnd, candles.size());
 
             } catch (Exception e) {
-                log.error("  ✗ Chunk failed {}/{} {} → {}",
-                        instrument.getSymbol(), intervalKey, chunkStart, chunkEnd, e);
-                progressRepository.markFailed(
-                        instrument.getSecurityId(), intervalKey, chunkStart, chunkEnd);
+                log.error("  ✗ {}/{} {} → {} failed", instrument.getSymbol(), key, chunkStart, chunkEnd, e);
+                progressRepository.markFailed(instrument.getSecurityId(), key, chunkStart, chunkEnd);
                 failed++;
             }
 
@@ -195,84 +177,85 @@ public class BackfillService {
             sleep(300);
         }
 
-        if (!buffer.isEmpty()) {
-            inserted += candleRepository.batchInsert(buffer);
-        }
-
-        int failedCount = progressRepository.countFailed(instrument.getSecurityId(), intervalKey);
-        if (failedCount > 0) {
-            log.warn("  ⚠ {}/{} has {} failed chunks — re-run backfill to retry",
-                    instrument.getSymbol(), intervalKey, failedCount);
-        }
-
+        if (!buffer.isEmpty()) inserted += candleRepository.batchInsert(buffer);
         return new BackfillResult(inserted, skipped, failed);
     }
 
     // ── Daily (1d) ────────────────────────────────────────────────────────────
 
     /**
-     * Fetches daily candles via /v2/charts/historical (no 90-day chunk limit).
-     * Resumes from the day after the last DONE progress record.
-     * 1W and 1M are NOT fetched here — they are derived from these 1d candles
-     * by DerivedCandleService after all instruments are done.
+     * Fetches 1d candles via /charts/historical for the full date range in one call.
+     * Resume: only fetches from day after last DONE record.
+     *
+     * NOTE: 1W and 1M are NOT fetched here or anywhere else from Dhan.
+     * They are derived in Step 3 by DerivedCandleService.aggregateNow().
      */
     private BackfillResult backfillDaily(Instrument instrument) {
-        final String intervalKey = "1d";
+        List<String> keys = List.of("1D", "1W", "1M");
+        for (String key : keys) {
+            progressRepository.resetStaleInProgress(instrument.getSecurityId(), key);
+            LocalDate end = LocalDate.now();
+            LocalDate start = end.minusYears(properties.getBackfill().getYearsBack());
 
-        progressRepository.resetStaleInProgress(instrument.getSecurityId(), intervalKey);
+            LocalDate fetchFrom = switch(key) {
+                case "1D" -> progressRepository
+                        .getLastCompletedDate(instrument.getSecurityId(), key)
+                        .map(d -> d.plusDays(1))
+                        .orElse(start);
+                case "1W" -> progressRepository
+                        .getLastCompletedDate(instrument.getSecurityId(), key)
+                        .map(d -> d.plusWeeks(1))
+                        .orElse(start);
+                case "1M" -> progressRepository
+                        .getLastCompletedDate(instrument.getSecurityId(), key)
+                        .map(d -> d.plusMonths(1))
+                        .orElse(start);
+                default -> throw new IllegalArgumentException("Unknown interval key: " + key);
+            };
 
-        LocalDate globalEnd   = LocalDate.now();
-        LocalDate globalStart = globalEnd.minusYears(properties.getBackfill().getYearsBack());
-
-        Optional<LocalDate> lastDone = progressRepository.getLastCompletedDate(
-                instrument.getSecurityId(), intervalKey);
-
-        LocalDate fetchFrom = lastDone
-                .map(d -> d.plusDays(1))
-                .orElse(globalStart);
-
-        if (!fetchFrom.isBefore(globalEnd)) {
-            log.info("✓ {}/1d already fully backfilled up to {}", instrument.getSymbol(), globalEnd);
-            return new BackfillResult(0, 1, 0);
-        }
-
-        log.info("▶ Backfilling {}/1d | {} → {}", instrument.getSymbol(), fetchFrom, globalEnd);
-
-        try {
-            progressRepository.markInProgress(
-                    instrument.getSecurityId(), intervalKey, fetchFrom, globalEnd);
-
-            DhanCandleResponse response = dhanApiClient.fetchDaily(instrument, fetchFrom, globalEnd);
-            List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, intervalKey);
-
-            if (candles.isEmpty()) {
-                log.warn("  ⚠ {}/1d returned 0 candles for {} → {}",
-                        instrument.getSymbol(), fetchFrom, globalEnd);
-                progressRepository.markDone(
-                        instrument.getSecurityId(), intervalKey, fetchFrom, globalEnd, 0);
-                return new BackfillResult(0, 0, 0);
+            if (!fetchFrom.isBefore(end)) {
+                log.info("✓ {}/1d already complete", instrument.getSymbol());
+                return new BackfillResult(0, 1, 0);
             }
 
-            int inserted = candleRepository.batchInsert(candles);
-            progressRepository.markDone(
-                    instrument.getSecurityId(), intervalKey, fetchFrom, globalEnd, inserted);
+            log.info("▶ {}/1d fetching {} → {}", instrument.getSymbol(), fetchFrom, end);
 
-            log.info("  ✓ {}/1d {} → {} | {} candles",
-                    instrument.getSymbol(), fetchFrom, globalEnd, inserted);
-            return new BackfillResult(inserted, 0, 0);
+            try {
+                progressRepository.markInProgress(instrument.getSecurityId(), key, fetchFrom, end);
 
-        } catch (Exception e) {
-            log.error("  ✗ Daily backfill failed for {}", instrument.getSymbol(), e);
-            progressRepository.markFailed(instrument.getSecurityId(), intervalKey, fetchFrom, globalEnd);
-            return new BackfillResult(0, 0, 1);
+                DhanCandleResponse response = dhanApiClient.fetchDaily(instrument, fetchFrom, end);
+                List<Candle> candles = candleMapper.mapWithIntervalKey(response, instrument, key);
+
+                if (candles.isEmpty()) {
+                    log.warn("  ⚠ {}/1d returned 0 candles — check securityId={} exchangeSegment={} instrumentType={}",
+                            instrument.getSymbol(),
+                            instrument.getSecurityId(),
+                            instrument.getExchangeSegment(),
+                            instrument.getInstrumentType());
+                    // Mark as failed so it retries on next run rather than being silently skipped
+                    progressRepository.markFailed(instrument.getSecurityId(), key, fetchFrom, end);
+                    return new BackfillResult(0, 0, 1);
+                }
+
+                int inserted = candleRepository.batchInsert(candles);
+                progressRepository.markDone(instrument.getSecurityId(), key, fetchFrom, end, inserted);
+                log.info("  ✓ {}/1d inserted {} candles ({} → {})",
+                        instrument.getSymbol(), inserted, candles.get(0).getTs(), candles.get(candles.size() - 1).getTs());
+                return new BackfillResult(inserted, 0, 0);
+
+            } catch (Exception e) {
+                log.error("  ✗ {}/1d fetch failed", instrument.getSymbol(), e);
+                progressRepository.markFailed(instrument.getSecurityId(), key, fetchFrom, end);
+                return new BackfillResult(0, 0, 1);
+            }
         }
+        return null;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void sleep(long ms) {
-        try { Thread.sleep(ms); }
-        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     public boolean isRunning() { return running; }

@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 @Slf4j
@@ -29,8 +30,8 @@ public class BackfillProgressRepository {
                   AND interval      = ?
                   AND status        = 'DONE'
                 """,
-                java.sql.Date.class,
-                instrumentId, interval
+                    java.sql.Date.class,
+                    instrumentId, interval
             ).toLocalDate();
             return Optional.ofNullable(date);
         } catch (Exception e) {
@@ -53,38 +54,47 @@ public class BackfillProgressRepository {
               AND to_date       = ?
               AND status        = 'DONE'
             """,
-            Integer.class,
-            instrumentId, interval,
-            java.sql.Date.valueOf(from),
-            java.sql.Date.valueOf(to)
+                Integer.class,
+                instrumentId, interval,
+                java.sql.Date.valueOf(from),
+                java.sql.Date.valueOf(to)
         );
         return count != null && count > 0;
     }
 
     /**
-     * Resets any IN_PROGRESS chunks for this instrument+interval back to PENDING
+     * Resets any IN_PROGRESS or FAILED chunks back to PENDING so they are retried.
+     * so they are retried on resume. Called at the start of each backfill run.
+     * Handles the case where the previous run crashed mid-chunk.
+     */
+    public void resetStaleInProgress(long instrumentId, List<String> intervals) {
+        intervals.forEach(interval -> resetStaleInProgress(instrumentId, interval));
+    }
+
+    /**
+     * Resets any IN_PROGRESS or FAILED chunks back to PENDING so they are retried.
      * so they are retried on resume. Called at the start of each backfill run.
      * Handles the case where the previous run crashed mid-chunk.
      */
     public void resetStaleInProgress(long instrumentId, String interval) {
         jdbcTemplate.update("""
-            INSERT INTO trading.backfill_progress
-                (instrument_id, interval, from_date, to_date, status, rows_inserted, updated_at)
-            SELECT
-                instrument_id,
-                interval,
-                from_date,
-                to_date,
-                'PENDING',
-                0,
-                now()
-            FROM trading.backfill_progress FINAL
-            WHERE instrument_id = ?
-              AND interval      = ?
-              AND status        = 'IN_PROGRESS'
-            """,
-            instrumentId, interval
-        );
+                                INSERT INTO trading.backfill_progress
+                                    (instrument_id, interval, from_date, to_date, status, rows_inserted, updated_at)
+                                SELECT
+                                    instrument_id,
+                                interval,
+                                from_date,
+                                to_date,
+                                'PENDING',
+                                0,
+                                now()
+                            FROM trading.backfill_progress FINAL
+                            WHERE instrument_id = ?
+                              AND interval      = ?
+                              AND status        IN ('IN_PROGRESS', 'FAILED')
+                            """,
+                    instrumentId, interval
+            );
     }
 
     /**
@@ -98,8 +108,8 @@ public class BackfillProgressRepository {
               AND interval      = ?
               AND status        = 'FAILED'
             """,
-            Integer.class,
-            instrumentId, interval
+                Integer.class,
+                instrumentId, interval
         );
         return count != null ? count : 0;
     }
@@ -124,10 +134,10 @@ public class BackfillProgressRepository {
                 (instrument_id, interval, from_date, to_date, status, rows_inserted, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, now())
             """,
-            instrumentId, interval,
-            java.sql.Date.valueOf(from),
-            java.sql.Date.valueOf(to),
-            status, rows
+                instrumentId, interval,
+                java.sql.Date.valueOf(from),
+                java.sql.Date.valueOf(to),
+                status, rows
         );
     }
 }

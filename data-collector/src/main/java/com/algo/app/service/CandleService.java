@@ -50,7 +50,7 @@ public class CandleService {
             case "1m"  -> to.minusDays(5);       // 5 days max for 1-min
             case "5m"  -> to.minusDays(30);      // 30 days max for 5-min
             case "15m" -> to.minusDays(90);      // 90 days for 15-min
-            case "60m" -> to.minusYears(1);      // 1 year for hourly
+            case "1h" -> to.minusYears(1);      // 1 year for hourly
             default    -> from;                  // 1d / 1W / 1M — use requested range
         };
     }

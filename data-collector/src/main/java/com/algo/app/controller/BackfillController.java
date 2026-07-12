@@ -63,7 +63,7 @@ public class BackfillController {
      */
     @GetMapping("/progress")
     public ResponseEntity<?> getProgress(@RequestParam long instrumentId) {
-        var intervals = List.of("1m", "5m", "15m", "60m", "1d");
+        var intervals = List.of("1m", "5m", "15m", "1h", "1D", "1W", "1M");
         var result = intervals.stream().map(interval -> {
             var lastDone = progressRepository.getLastCompletedDate(instrumentId, interval);
             int failed   = progressRepository.countFailed(instrumentId, interval);

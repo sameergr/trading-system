@@ -6,24 +6,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-/**
- * Derives 1W and 1M candles by aggregating 1d candles already stored in ClickHouse.
- *
- * Dhan API has no native weekly/monthly endpoint — we build them here from daily data.
- *
- * Aggregation rules:
- *   open   = first open of the period   (argMin by ts)
- *   high   = max high of the period
- *   low    = min low  of the period
- *   close  = last close of the period   (argMax by ts)
- *   volume = sum of daily volumes
- *   ts     = Monday of the week / 1st of the month (ClickHouse toStartOfWeek / toStartOfMonth)
- *
- * Called automatically:
- *   - At end of every BackfillService.runBackfill()
- *   - Scheduled at 3:45 PM IST weekdays (15 min after IncrementalRefreshService)
- *   - Manually via POST /api/backfill/derive
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -37,96 +19,119 @@ public class DerivedCandleService {
         aggregateNow();
     }
 
-    /**
-     * Full re-aggregation:
-     *  1. Delete existing 1W and 1M rows (instant in ClickHouse via ALTER DELETE)
-     *  2. Re-insert fresh aggregations from current 1d data
-     *
-     * Deletion before insert is important because ReplacingMergeTree deduplication
-     * runs in the background — without deletion, duplicate rows accumulate until
-     * ClickHouse decides to merge, causing inflated candle counts in queries.
-     */
     public void aggregateNow() {
-        log.info("Deleting stale 1W rows...");
-        deleteInterval("1W");
+        // First verify there is actually 1d data to aggregate from
+        Long dailyCount = jdbcTemplate.queryForObject(
+            "SELECT count() FROM market_data.candles FINAL WHERE interval = '1D'",
+            Long.class
+        );
 
-        log.info("Deleting stale 1M rows...");
-        deleteInterval("1M");
+        log.info("1D candles available for aggregation: {}", dailyCount);
 
-        log.info("Aggregating 1W candles from 1d data...");
-        aggregateWeekly();
+        if (dailyCount == null || dailyCount == 0) {
+            log.warn("No 1D candles found — skipping 1W/1M aggregation. " +
+                     "Run daily backfill first, then re-trigger derive.");
+            return;
+        }
 
-        log.info("Aggregating 1M candles from 1d data...");
-        aggregateMonthly();
+        log.info("Clearing stale 1W rows...");
+        deleteIntervalSync("1W");
 
-        log.info("1W and 1M aggregation complete.");
+        log.info("Clearing stale 1M rows...");
+        deleteIntervalSync("1M");
+
+        log.info("Aggregating 1W candles from {} daily rows...", dailyCount);
+        long weekly = aggregateWeekly();
+
+        log.info("Aggregating 1M candles from {} daily rows...", dailyCount);
+        long monthly = aggregateMonthly();
+
+        log.info("1W and 1M aggregation complete — 1W rows: {}, 1M rows: {}", weekly, monthly);
     }
 
-    private void deleteInterval(String interval) {
+    /**
+     * Deletes interval rows synchronously by setting mutations_sync=1 for this session.
+     * Without this, ALTER TABLE DELETE is async and the subsequent INSERT runs
+     * before the delete finishes, causing duplicate accumulation.
+     */
+    private void deleteIntervalSync(String interval) {
         try {
-            // ALTER TABLE DELETE is synchronous in ClickHouse when mutations_sync=1
+            // Force synchronous mutation execution for this connection
+            jdbcTemplate.execute("SET mutations_sync = 1");
             jdbcTemplate.execute(
-                "ALTER TABLE trading.candles DELETE WHERE interval = '" + interval + "'"
+                "ALTER TABLE market_data.candles DELETE WHERE interval = '" + interval + "'"
             );
-            log.info("Deleted existing {} rows.", interval);
+            log.info("Deleted {} rows.", interval);
         } catch (Exception e) {
-            log.warn("Could not delete {} rows (table may be empty): {}", interval, e.getMessage());
+            log.warn("Could not delete {} rows (may not exist yet): {}", interval, e.getMessage());
         }
     }
 
-    private void aggregateWeekly() {
+    private long aggregateWeekly() {
         try {
             jdbcTemplate.execute("""
-                INSERT INTO trading.candles
+                INSERT INTO market_data.candles
                     (instrument_id, symbol, interval, ts, open, high, low, close, volume, oi)
                 SELECT
                     instrument_id,
-                    any(symbol)              AS symbol,
-                    '1W'                     AS interval,
-                    toStartOfWeek(ts, 1)     AS ts,
-                    argMin(open,  ts)        AS open,
-                    max(high)                AS high,
-                    min(low)                 AS low,
-                    argMax(close, ts)        AS close,
-                    sum(volume)              AS volume,
-                    argMax(oi, ts)           AS oi
-                FROM trading.candles FINAL
-                WHERE interval = '1d'
-                  AND ts IS NOT NULL
-                GROUP BY instrument_id, toStartOfWeek(ts, 1)
-                ORDER BY instrument_id, ts
+                    any(symbol)           AS symbol,
+                    '1W'                  AS interval,
+                    toStartOfWeek(ts, 1)  AS week_start,
+                    argMin(open,  ts)     AS open,
+                    max(high)             AS high,
+                    min(low)              AS low,
+                    argMax(close, ts)     AS close,
+                    sum(volume)           AS volume,
+                    argMax(oi, ts)        AS oi
+                FROM market_data.candles FINAL
+                WHERE interval = '1D'
+                GROUP BY instrument_id, week_start
+                ORDER BY instrument_id, week_start
             """);
-            log.info("1W aggregation inserted.");
+
+            Long count = jdbcTemplate.queryForObject(
+                "SELECT count() FROM market_data.candles FINAL WHERE interval = '1W'",
+                Long.class
+            );
+            log.info("1W inserted: {} rows", count);
+            return count != null ? count : 0;
         } catch (Exception e) {
             log.error("1W aggregation failed", e);
+            return 0;
         }
     }
 
-    private void aggregateMonthly() {
+    private long aggregateMonthly() {
         try {
             jdbcTemplate.execute("""
-                INSERT INTO trading.candles
+                INSERT INTO market_data.candles
                     (instrument_id, symbol, interval, ts, open, high, low, close, volume, oi)
                 SELECT
                     instrument_id,
-                    any(symbol)              AS symbol,
-                    '1M'                     AS interval,
-                    toStartOfMonth(ts)       AS ts,
-                    argMin(open,  ts)        AS open,
-                    max(high)                AS high,
-                    min(low)                 AS low,
-                    argMax(close, ts)        AS close,
-                    sum(volume)              AS volume,
-                    argMax(oi, ts)           AS oi
-                FROM trading.candles FINAL
-                WHERE interval = '1d'
-                  AND ts IS NOT NULL
-                GROUP BY instrument_id, toStartOfMonth(ts)
-                ORDER BY instrument_id, ts
+                    any(symbol)            AS symbol,
+                    '1M'                   AS interval,
+                    toStartOfMonth(ts)     AS month_start,
+                    argMin(open,  ts)      AS open,
+                    max(high)              AS high,
+                    min(low)               AS low,
+                    argMax(close, ts)      AS close,
+                    sum(volume)            AS volume,
+                    argMax(oi, ts)         AS oi
+                FROM market_data.candles FINAL
+                WHERE interval = '1D'
+                GROUP BY instrument_id, month_start
+                ORDER BY instrument_id, month_start
             """);
-            log.info("1M aggregation inserted.");
+
+            Long count = jdbcTemplate.queryForObject(
+                "SELECT count() FROM market_data.candles FINAL WHERE interval = '1M'",
+                Long.class
+            );
+            log.info("1M inserted: {} rows", count);
+            return count != null ? count : 0;
         } catch (Exception e) {
             log.error("1M aggregation failed", e);
+            return 0;
         }
     }
 }

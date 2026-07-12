@@ -18,7 +18,7 @@ public class InstrumentManagementRepository {
     private final JdbcTemplate jdbcTemplate;
 
     private static final List<String> ALL_INTERVALS =
-            List.of("1m", "5m", "15m", "60m", "1d", "1W", "1M");
+            List.of("1m", "5m", "15m", "1h", "1D", "1W", "1M");
 
     // ── Read ─────────────────────────────────────────────────────────────────
 

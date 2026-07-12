@@ -11,7 +11,8 @@ public enum CandleInterval {
     ONE_MIN(1,     "1m",  "1",    false),
     FIVE_MIN(5,    "5m",  "5",    false),
     FIFTEEN_MIN(15,"15m", "15",   false),
-    ONE_HOUR(60,   "60m", "60",   false),
+    ONE_HOUR(60,   "1h", "60",   false),
+    ONE_DAY(1440,   "1D", null,   true),
     ONE_WEEK(10080,"1W",  null,   true),   // derived by aggregating daily candles
     ONE_MONTH(43200,"1M", null,   true);   // derived by aggregating daily candles
 
@@ -24,11 +25,11 @@ public enum CandleInterval {
         return !derived;
     }
 
-    public static CandleInterval fromMinutes(int minutes) {
+    public static CandleInterval fromInterval(String interval) {
         return Arrays.stream(values())
-                .filter(i -> i.minutes == minutes)
+                .filter(i -> i.clickhouseValue.equals(interval))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown interval: " + minutes));
+                .orElseThrow(() -> new IllegalArgumentException("Unknown interval: " + interval));
     }
 
     public static CandleInterval fromClickhouseValue(String value) {
