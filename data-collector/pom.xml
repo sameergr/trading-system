@@ -9,9 +9,9 @@
         <artifactId>trading-system-kryzz</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <artifactId>dhan-collector</artifactId>
+    <artifactId>data-collector</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Dhan Historical Data Collector</name>
+    <name>Candle Historical Data Collector</name>
 
     <properties>
 <!--        <clickhouse.version>0.6.1</clickhouse.version>-->
