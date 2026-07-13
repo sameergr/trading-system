@@ -1,0 +1,391 @@
+// ── Design tokens ──────────────────────────────────────────────────────────
+$bg:         #0d1117;
+$bg-panel:   #161b22;
+$bg-hover:   #1f2937;
+$border:     #30363d;
+$text:       #e6edf3;
+$text-muted: #8b949e;
+$green:      #3fb950;
+$red:        #f85149;
+$blue:       #58a6ff;
+$blue-dim:   rgba(88, 166, 255, 0.15);
+
+// ── Shell ──────────────────────────────────────────────────────────────────
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: $bg;
+  color: $text;
+  font-family: 'Inter', 'SF Pro Text', system-ui, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+// ── Topbar ─────────────────────────────────────────────────────────────────
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  height: 52px;
+  background: $bg-panel;
+  border-bottom: 1px solid $border;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+}
+
+.brand-mark {
+  color: $blue;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: $text;
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.control-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: $text-muted;
+}
+
+.select,
+.date-input {
+  background: $bg;
+  color: $text;
+  border: 1px solid $border;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  height: 28px;
+
+  &:focus {
+    border-color: $blue;
+    box-shadow: 0 0 0 2px $blue-dim;
+  }
+}
+
+.select {
+  min-width: 110px;
+  padding-right: 24px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%238b949e' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+// ── Interval pills ─────────────────────────────────────────────────────────
+.interval-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.pill {
+  padding: 4px 10px;
+  border: 1px solid $border;
+  border-radius: 6px;
+  background: transparent;
+  color: $text-muted;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: $bg-hover;
+    color: $text;
+    border-color: $text-muted;
+  }
+
+  &.active {
+    background: $blue-dim;
+    color: $blue;
+    border-color: $blue;
+    font-weight: 500;
+  }
+}
+
+// ── Load button ────────────────────────────────────────────────────────────
+.btn-load {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: $blue;
+  color: #0d1117;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-left: auto;
+  height: 28px;
+
+  &:hover { opacity: 0.85; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+// ── OHLCV bar ──────────────────────────────────────────────────────────────
+.ohlcv-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 32px;
+  background: $bg-panel;
+  border-bottom: 1px solid $border;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: $text-muted;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.ohlcv-symbol {
+  color: $text;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.ohlcv-interval {
+  color: $blue;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ohlcv-item {
+  em {
+    font-style: normal;
+    color: $text;
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  em.up   { color: $green; }
+  em.down { color: $red;   }
+}
+
+.ohlcv-change {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &.up   { color: $green; }
+  &.down { color: $red;   }
+}
+
+.ohlcv-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: $text-muted;
+}
+
+// ── Chart area ─────────────────────────────────────────────────────────────
+.chart-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.chart-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+// ── Navigation toolbar ─────────────────────────────────────────────────────
+.nav-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 4px 6px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.nav-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav-divider {
+  width: 1px;
+  height: 18px;
+  background: #30363d;
+  margin: 0 4px;
+}
+
+.nav-btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #8b949e;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+
+  &:hover {
+    background: #1f2937;
+    border-color: #30363d;
+    color: #e6edf3;
+  }
+
+  &:active {
+    transform: scale(0.94);
+    background: rgba(88,166,255,0.1);
+    color: #58a6ff;
+  }
+}
+
+.nav-btn-reset {
+  color: #58a6ff;
+  border-color: rgba(88,166,255,0.3);
+  background: rgba(88,166,255,0.08);
+  font-weight: 600;
+
+  &:hover {
+    background: rgba(88,166,255,0.16);
+    border-color: #58a6ff;
+    color: #58a6ff;
+  }
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: #8b949e;
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+// ── Overlay (loading / error) ──────────────────────────────────────────────
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+  gap: 16px;
+}
+
+.overlay-text {
+  color: $text-muted;
+  font-size: 14px;
+}
+
+.error-icon {
+  font-size: 32px;
+  color: $red;
+}
+
+.btn-retry {
+  padding: 6px 18px;
+  background: transparent;
+  border: 1px solid $border;
+  border-radius: 6px;
+  color: $text;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover { border-color: $blue; color: $blue; }
+}
+
+// ── Loading pulse ──────────────────────────────────────────────────────────
+.loading-pulse {
+  display: flex;
+  gap: 6px;
+
+  span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: $blue;
+    animation: pulse 1.2s ease-in-out infinite;
+
+    &:nth-child(2) { animation-delay: 0.2s; }
+    &:nth-child(3) { animation-delay: 0.4s; }
+  }
+}
+
+@keyframes pulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1.0); opacity: 1;   }
+}
+
+// ── Spinner (inline in button) ─────────────────────────────────────────────
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(13,17,23,0.3);
+  border-top-color: #0d1117;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+// ── Status bar ─────────────────────────────────────────────────────────────
+.statusbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  height: 24px;
+  background: $bg-panel;
+  border-top: 1px solid $border;
+  font-size: 11px;
+  color: $text-muted;
+  flex-shrink: 0;
+}
+
+.statusbar-right {
+  opacity: 0.7;
+}

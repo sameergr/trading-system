@@ -1,0 +1,314 @@
+<div class="page-shell">
+  <app-nav />
+
+  <div class="page-body">
+
+    <!-- ── Page header ───────────────────────────────────────────────────── -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Instruments</h1>
+        <p class="page-sub">Manage instruments and monitor backfill status</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost" (click)="loadStatus()" [disabled]="loading()">
+          ↻ Refresh
+        </button>
+        <button class="btn btn-primary" (click)="triggerBackfillAll()" [disabled]="backfilling()">
+          @if (backfilling()) { <span class="spinner-sm"></span> } @else { ▶ }
+          Backfill All
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Stat cards ─────────────────────────────────────────────────────── -->
+    <div class="stat-row">
+      <div class="stat-card">
+        <span class="stat-value">{{ stats().total }}</span>
+        <span class="stat-label">Total</span>
+      </div>
+      <div class="stat-card stat-green">
+        <span class="stat-value">{{ stats().complete }}</span>
+        <span class="stat-label">Complete</span>
+      </div>
+      <div class="stat-card stat-yellow">
+        <span class="stat-value">{{ stats().partial }}</span>
+        <span class="stat-label">Partial</span>
+      </div>
+      <div class="stat-card stat-gray">
+        <span class="stat-value">{{ stats().pending }}</span>
+        <span class="stat-label">Pending</span>
+      </div>
+      <div class="stat-card stat-red">
+        <span class="stat-value">{{ stats().failed }}</span>
+        <span class="stat-label">Failed</span>
+      </div>
+      <div class="stat-card stat-blue">
+        <span class="stat-value">{{ formatCandles(stats().totalCandles) }}</span>
+        <span class="stat-label">Total Candles</span>
+      </div>
+    </div>
+
+    <!-- ── Tab bar ────────────────────────────────────────────────────────── -->
+    <div class="tab-bar">
+      <button class="tab" [class.active]="activeTab()==='list'" (click)="activeTab.set('list')">
+        🗂 Instruments ({{ stats().total }})
+      </button>
+      <button class="tab" [class.active]="activeTab()==='add'" (click)="activeTab.set('add')">
+        ＋ Add Manually
+      </button>
+      <button class="tab" [class.active]="activeTab()==='csv'" (click)="activeTab.set('csv')">
+        ↑ Import CSV
+      </button>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         TAB: LIST
+    ══════════════════════════════════════════════════════════════════════════ -->
+    @if (activeTab() === 'list') {
+      <div class="list-controls">
+        <input class="search-input" type="text" placeholder="Search symbol or exchange…"
+               [value]="searchQuery()"
+               (input)="searchQuery.set($any($event.target).value)" />
+        <div class="filter-pills">
+          @for (f of filterOptions; track f) {
+            <button class="pill" [class.active]="filterStatus()===f"
+                    (click)="filterStatus.set(f)">{{ f }}</button>
+          }
+        </div>
+      </div>
+
+      @if (loading()) {
+        <div class="empty-state">
+          <div class="loading-dots"><span></span><span></span><span></span></div>
+          <p>Loading instruments…</p>
+        </div>
+      } @else if (error()) {
+        <div class="empty-state error-state">
+          <span class="empty-icon">⚠</span>
+          <p>{{ error() }}</p>
+          <button class="btn btn-ghost" (click)="loadStatus()">Retry</button>
+        </div>
+      } @else if (filtered().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon">🔍</span>
+          <p>No instruments match your filter.</p>
+        </div>
+      } @else {
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Exchange</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th class="num-col">Total Candles</th>
+                <th>Last Candle</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (inst of filtered(); track inst.securityId; let idx = $index) {
+                <!-- Main row -->
+                <tr class="main-row" [class.expanded]="isExpanded(inst.securityId)"
+                    (click)="toggleExpand(inst.securityId)">
+                  <td>
+                    <div class="symbol-cell">
+                      <span class="expand-caret">{{ isExpanded(inst.securityId) ? '▾' : '▸' }}</span>
+                      <span class="symbol-name">{{ inst.symbol }}</span>
+                      @if (!inst.active) {
+                        <span class="badge badge-gray" style="font-size:10px">inactive</span>
+                      }
+                    </div>
+                  </td>
+                  <td class="muted">{{ inst.exchangeSegment }}</td>
+                  <td class="muted">{{ inst.instrumentType }}</td>
+                  <td>
+                    <span class="badge {{ statusClass(inst.overallStatus) }}">
+                      {{ statusIcon(inst.overallStatus) }} {{ inst.overallStatus }}
+                    </span>
+                  </td>
+                  <td class="num-col">{{ formatCandles(inst.totalCandles) }}</td>
+                  <td class="muted">
+                    {{ inst.intervals[4]?.lastCandleDate ?? '—' }}
+                  </td>
+                  <td class="actions-cell" (click)="$event.stopPropagation()">
+                    <button class="icon-btn" title="Trigger backfill"
+                            (click)="triggerBackfillOne(inst.securityId)">▶</button>
+                    <button class="icon-btn danger" title="Deactivate"
+                            (click)="deactivate(inst)">✕</button>
+                  </td>
+                </tr>
+
+                <!-- Expanded interval detail row -->
+                @if (isExpanded(inst.securityId)) {
+                  <tr class="detail-row">
+                    <td colspan="7">
+                      <div class="interval-grid">
+                        @for (iv of inst.intervals; track iv.interval) {
+                          <div class="interval-card">
+                            <div class="iv-header">
+                              <span class="iv-name">{{ iv.interval }}</span>
+                              <span class="badge {{ statusClass(iv.status) }} badge-xs">
+                                {{ statusIcon(iv.status) }}
+                              </span>
+                            </div>
+                            <div class="iv-count">{{ formatCandles(iv.candleCount) }}</div>
+                            <div class="iv-dates">
+                              @if (iv.firstCandleDate) {
+                                <span>{{ iv.firstCandleDate }}</span>
+                                <span class="iv-sep">→</span>
+                                <span>{{ iv.lastCandleDate }}</span>
+                              } @else {
+                                <span class="muted">No data</span>
+                              }
+                            </div>
+                            <div class="iv-chunks">
+                              <span class="chunk-done" title="Done chunks">✓ {{ iv.doneChunks }}</span>
+                              @if (iv.failedChunks > 0) {
+                                <span class="chunk-fail" title="Failed chunks">✕ {{ iv.failedChunks }}</span>
+                              }
+                              @if (iv.pendingChunks > 0) {
+                                <span class="chunk-pend" title="Pending chunks">○ {{ iv.pendingChunks }}</span>
+                              }
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         TAB: ADD MANUALLY
+    ══════════════════════════════════════════════════════════════════════════ -->
+    @if (activeTab() === 'add') {
+      <div class="form-card">
+        <h2 class="form-title">Add Instrument</h2>
+        <p class="form-hint">
+          Find the Security ID from
+          <a href="https://images.dhan.co/api-data/api-scrip-master.csv"
+             target="_blank" class="link">Dhan's instrument master CSV ↗</a>
+        </p>
+
+        <div class="form-grid">
+          <div class="field">
+            <label class="field-label">Security ID <span class="required">*</span></label>
+            <input class="field-input" type="number" placeholder="e.g. 11536"
+                   [(ngModel)]="addForm.securityId" />
+            <span class="field-hint">Unique numeric ID from Dhan instrument master</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Symbol <span class="required">*</span></label>
+            <input class="field-input" type="text" placeholder="e.g. SBIN"
+                   [(ngModel)]="addForm.symbol" style="text-transform:uppercase" />
+          </div>
+
+          <div class="field">
+            <label class="field-label">Exchange Segment <span class="required">*</span></label>
+            <select class="field-select" [(ngModel)]="addForm.exchangeSegment">
+              @for (seg of exchangeSegments; track seg.value) {
+                <option [value]="seg.value">{{ seg.label }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Instrument Type <span class="required">*</span></label>
+            <select class="field-select" [(ngModel)]="addForm.instrumentType">
+              @for (t of instrumentTypes; track t.value) {
+                <option [value]="t.value">{{ t.label }}</option>
+              }
+            </select>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-ghost" (click)="activeTab.set('list')">Cancel</button>
+          <button class="btn btn-primary" (click)="submitAdd()" [disabled]="addLoading()">
+            @if (addLoading()) { <span class="spinner-sm"></span> }
+            Add Instrument
+          </button>
+        </div>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         TAB: CSV UPLOAD
+    ══════════════════════════════════════════════════════════════════════════ -->
+    @if (activeTab() === 'csv') {
+      <div class="form-card">
+        <h2 class="form-title">Import from CSV</h2>
+
+        <div class="csv-format-box">
+          <p class="csv-format-label">Expected CSV format (header row required):</p>
+          <pre class="csv-sample">security_id,symbol,exchange_segment,instrument_type
+11536,SBIN,NSE_EQ,EQUITY
+1333,HDFCBANK,NSE_EQ,EQUITY
+3045,RELIANCE,NSE_EQ,EQUITY</pre>
+          <p class="csv-format-hint">
+            Download the full Dhan instrument master:
+            <a href="https://images.dhan.co/api-data/api-scrip-master.csv"
+               target="_blank" class="link">api-scrip-master.csv ↗</a>
+          </p>
+        </div>
+
+        <!-- Drop zone -->
+        <label class="drop-zone" [class.has-file]="csvFile()">
+          <input type="file" accept=".csv" class="file-input"
+                 (change)="onFileSelected($event)" />
+          @if (!csvFile()) {
+            <div class="drop-content">
+              <span class="drop-icon">↑</span>
+              <p class="drop-text">Click to select CSV file</p>
+              <p class="drop-hint">or drag and drop here</p>
+            </div>
+          } @else {
+            <div class="drop-content">
+              <span class="drop-icon file-icon">📄</span>
+              <p class="drop-text">{{ csvFile()!.name }}</p>
+              <p class="drop-hint">{{ (csvFile()!.size / 1024).toFixed(1) }} KB — click to change</p>
+            </div>
+          }
+        </label>
+
+        <!-- Upload result -->
+        @if (csvResult()) {
+          <div class="csv-result">
+            <span class="result-count">✓ {{ csvResult()!.added }} instruments added</span>
+            <div class="result-symbols">
+              @for (sym of csvResult()!.symbols; track sym) {
+                <span class="symbol-chip">{{ sym }}</span>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="form-actions">
+          <button class="btn btn-ghost" (click)="activeTab.set('list')">Cancel</button>
+          <button class="btn btn-primary" (click)="submitCSV()"
+                  [disabled]="!csvFile() || csvLoading()">
+            @if (csvLoading()) { <span class="spinner-sm"></span> }
+            Import
+          </button>
+        </div>
+      </div>
+    }
+
+  </div><!-- /page-body -->
+
+  <!-- ── Toast ──────────────────────────────────────────────────────────── -->
+  @if (toast()) {
+    <div class="toast" [class]="'toast-' + toast()!.type">
+      {{ toast()!.msg }}
+    </div>
+  }
+
+</div>
