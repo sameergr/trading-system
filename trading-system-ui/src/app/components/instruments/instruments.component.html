@@ -130,7 +130,7 @@
                   </td>
                   <td class="num-col">{{ formatCandles(inst.totalCandles) }}</td>
                   <td class="muted">
-                    {{ inst.intervals[4]?.lastCandleDate ?? '—' }}
+                    {{ inst.intervals[4].lastCandleDate ?? '—' }}
                   </td>
                   <td class="actions-cell" (click)="$event.stopPropagation()">
                     <button class="icon-btn" title="Trigger backfill"

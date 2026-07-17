@@ -21,7 +21,7 @@ spring:
 dhan:
   api:
     base-url: https://api.dhan.co/v2
-    access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiZTkxNWVhbjUiLCJicm9hZGNhc3RfZmxhZyI6dHJ1ZSwiZXhwIjoxNzgzOTE2ODA0LCJ0b2tlbkNvbnN1bWVyVHlwZSI6IlBBUlRORVIiLCJkaGFuQ2xpZW50SWQiOiIxMTA0NzU2MTQ1In0.75UiKoilDdSr-0oWxZtNggs-nub1YXfKoVHj8n-lvIf48m2Ozw-w83KT6sRIeBHFriE3RQPp2kXuUEo3kOJDhQ
+    access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiZTkxNWVhbjUiLCJicm9hZGNhc3RfZmxhZyI6dHJ1ZSwiZXhwIjoxNzg0MzAzMzk3LCJ0b2tlbkNvbnN1bWVyVHlwZSI6IlBBUlRORVIiLCJkaGFuQ2xpZW50SWQiOiIxMTA0NzU2MTQ1In0.69tn8pYnxiqSg8wnIRWx8n8y-AZHWf-H_tV7vWk6ELT_BrTi9Cb8n-gRerXegMXQ54MBA6JfsocKP-1eKiPn2A
     timeout-seconds: 30
     max-retries: 3
   collector:

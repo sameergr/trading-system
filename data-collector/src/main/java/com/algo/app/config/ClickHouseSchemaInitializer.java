@@ -1,4 +1,4 @@
-package com.dhan.collector.config;
+package com.algo.app.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
