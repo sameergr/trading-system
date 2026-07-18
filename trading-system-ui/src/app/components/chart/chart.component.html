@@ -1,0 +1,188 @@
+<div class="app-shell">
+
+  <app-nav />
+
+  <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">▲</span>
+      <span class="brand-name">DhanCharts</span>
+    </div>
+
+    <div class="control-group">
+      <label class="control-label">Symbol</label>
+      <select class="select" (change)="onInstrumentChange($event)">
+        @for (inst of instruments(); track inst.securityId) {
+          <option [value]="inst.securityId"
+                  [selected]="inst.securityId === selectedInstrument()?.securityId">
+            {{ inst.symbol }}
+          </option>
+        }
+      </select>
+    </div>
+
+    <div class="interval-pills">
+      @for (iv of intervals; track iv.value) {
+        <button class="pill" [class.active]="selectedInterval() === iv.value"
+                (click)="onIntervalChange(iv.value)">
+          {{ iv.label }}
+        </button>
+      }
+    </div>
+
+    <div class="control-group">
+      <label class="control-label">From</label>
+      <input class="date-input" type="date" [value]="fromDate()"
+             (change)="fromDate.set($any($event.target).value); onDateChange()" />
+    </div>
+    <div class="control-group">
+      <label class="control-label">To</label>
+      <input class="date-input" type="date" [value]="toDate()"
+             (change)="toDate.set($any($event.target).value); onDateChange()" />
+    </div>
+
+    <button class="btn-load" (click)="loadCandles()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner"></span> } @else { ↻ }
+      Load
+    </button>
+
+    <button class="btn-ai-toggle" (click)="toggleAIPanel()" title="Toggle AI Analysis">
+      🤖 AI Analysis
+    </button>
+  </header>
+
+  <!-- ── OHLCV tooltip strip ───────────────────────────────────────────── -->
+  <div class="ohlcv-bar">
+    @if (selectedInstrument()) {
+      <span class="ohlcv-symbol">{{ selectedInstrument()?.symbol }}</span>
+      <span class="ohlcv-interval">{{ selectedInterval() }}</span>
+    }
+    @if (displayCandle) {
+      <span class="ohlcv-item">O <em>{{ formatPrice(displayCandle!.open) }}</em></span>
+      <span class="ohlcv-item">H <em class="up">{{ formatPrice(displayCandle!.high) }}</em></span>
+      <span class="ohlcv-item">L <em class="down">{{ formatPrice(displayCandle!.low) }}</em></span>
+      <span class="ohlcv-item">C <em>{{ formatPrice(displayCandle!.close) }}</em></span>
+      <span class="ohlcv-item">V <em>{{ formatVolume(displayCandle!.volume) }}</em></span>
+      <span class="ohlcv-change" [class.up]="isPositive" [class.down]="!isPositive">
+        {{ changePercent }}
+      </span>
+    }
+    @if (candleCount() > 0) {
+      <span class="ohlcv-count">{{ candleCount() }} candles</span>
+    }
+  </div>
+
+  <!-- ── Chart area ────────────────────────────────────────────────────── -->
+  <div class="chart-area">
+
+    <!-- AI Analysis Side Panel -->
+    @if (showAIPanel()) {
+      <div class="ai-side-panel">
+        <div class="ai-panel-header">
+          <h3>AI Pattern Analysis</h3>
+          <button class="btn-close-panel" (click)="toggleAIPanel()" title="Close">×</button>
+        </div>
+        <div class="ai-panel-content">
+          <ai-analysis-panel
+            [securityId]="selectedInstrument()?.securityId ?? 0"
+            [securityName]="selectedInstrument()?.symbol ?? ''"
+            (patternsDetected)="onPatternsDetected($event)"
+            (analysisComplete)="onAnalysisComplete($event)"
+          />
+        </div>
+      </div>
+    }
+
+    <!-- Navigation toolbar — overlaid on top-right of chart -->
+    <div class="nav-toolbar">
+
+      <!-- Jump to edges -->
+      <div class="nav-group">
+        <button class="nav-btn" title="Jump to first candle" (click)="goToFirst()">
+          ⏮
+        </button>
+        <button class="nav-btn" title="Pan left 20%" (click)="panLeft()">
+          ‹
+        </button>
+        <button class="nav-btn" title="Pan right 20%" (click)="panRight()">
+          ›
+        </button>
+        <button class="nav-btn" title="Jump to last candle" (click)="goToLast()">
+          ⏭
+        </button>
+      </div>
+
+      <div class="nav-divider"></div>
+
+      <!-- Back N candles -->
+      <div class="nav-group">
+        <button class="nav-btn" title="Jump back 50 candles" (click)="jumpBack(50)">
+          −50
+        </button>
+        <button class="nav-btn" title="Jump back 20 candles" (click)="jumpBack(20)">
+          −20
+        </button>
+        <button class="nav-btn" title="Jump forward 20 candles" (click)="jumpForward(20)">
+          +20
+        </button>
+        <button class="nav-btn" title="Jump forward 50 candles" (click)="jumpForward(50)">
+          +50
+        </button>
+      </div>
+
+      <div class="nav-divider"></div>
+
+      <!-- Zoom -->
+      <div class="nav-group">
+        <button class="nav-btn" title="Zoom out" (click)="zoomOut()">
+          −
+        </button>
+        <span class="zoom-label" title="Current zoom level">{{ zoomLevel() }}%</span>
+        <button class="nav-btn" title="Zoom in" (click)="zoomIn()">
+          +
+        </button>
+      </div>
+
+      <div class="nav-divider"></div>
+
+      <!-- Reset -->
+      <button class="nav-btn nav-btn-reset" title="Reset to fit all candles" (click)="resetZoom()">
+        ⊡ Fit
+      </button>
+
+    </div>
+
+    <!-- Loading overlay -->
+    @if (loading()) {
+      <div class="overlay">
+        <div class="loading-pulse">
+          <span></span><span></span><span></span>
+        </div>
+        <p class="overlay-text">Loading candles…</p>
+      </div>
+    }
+
+    <!-- Error state -->
+    @if (error() && !loading()) {
+      <div class="overlay">
+        <div class="error-icon">⚠</div>
+        <p class="overlay-text">{{ error() }}</p>
+        <button class="btn-retry" (click)="loadCandles()">Retry</button>
+      </div>
+    }
+
+    <!-- Chart canvas -->
+    <div #chartContainer class="chart-canvas"></div>
+
+  </div>
+
+  <!-- ── Status bar ────────────────────────────────────────────────────── -->
+  <footer class="statusbar">
+    <span>ClickHouse → chart-api (8080) → Angular</span>
+    <span class="statusbar-right">
+      Scroll to zoom · Drag to pan · Double-click to reset
+      &nbsp;·&nbsp; TradingView Lightweight Charts
+    </span>
+  </footer>
+
+</div>

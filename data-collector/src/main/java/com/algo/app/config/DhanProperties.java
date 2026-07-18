@@ -27,7 +27,7 @@ public class DhanProperties {
         private int yearsBack = 5;
         private int chunkDays = 85;
         private String instrumentsFile;
-        private List<Integer> intervals = List.of(1, 5, 15, 60);
+        private List<String> intervals = List.of("1m", "5m", "15m", "1h", "1D", "1W", "1M");
         private int batchInsertSize = 5000;
     }
 }

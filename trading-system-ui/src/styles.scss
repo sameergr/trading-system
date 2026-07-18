@@ -1,0 +1,35 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track { background: #161b22; }
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+  &:hover { background: #8b949e; }
+}
+
+// Date input dark theme fix
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+select option {
+  background: #161b22;
+  color: #e6edf3;
+}

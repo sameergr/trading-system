@@ -1,4 +1,4 @@
-package com.dhan.collector.config;
+package com.algo.app.config;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +35,7 @@ public class ClickHouseSchemaInitializer implements ApplicationRunner {
             (
                 instrument_id   UInt32,
                 symbol          LowCardinality(String),
-                interval        Enum8('1m'=1, '5m'=5, '15m'=15, '60m'=60, '1d'=100, '1W'=101, '1M'=102),
+                interval        Enum8('1m'=1, '5m'=5, '15m'=15, '1h'=60, '1D'=100, '1W'=101, '1M'=102),
                 ts              DateTime64(0, 'Asia/Kolkata'),
                 open            Float64,
                 high            Float64,
@@ -44,8 +44,8 @@ public class ClickHouseSchemaInitializer implements ApplicationRunner {
                 volume          UInt64,
                 oi              UInt64 DEFAULT 0
             )
-            ENGINE = ReplacingMergeTree(ts)
-            PARTITION BY (interval, toYYYYMM(ts))
+            ENGINE = MergeTree()
+            PARTITION BY toYYYYMM(ts)
             ORDER BY (instrument_id, interval, ts)
             SETTINGS index_granularity = 8192
         """);
@@ -61,7 +61,7 @@ public class ClickHouseSchemaInitializer implements ApplicationRunner {
             jdbcTemplate.execute("""
                 ALTER TABLE trading.candles
                 MODIFY COLUMN interval
-                Enum8('1m'=1, '5m'=5, '15m'=15, '60m'=60, '1d'=100, '1W'=101, '1M'=102)
+                Enum8('1m'=1, '5m'=5, '15m'=15, '1h'=60, '1D'=100, '1W'=101, '1M'=102)
             """);
             log.info("Enum migration for interval column applied.");
         } catch (Exception e) {

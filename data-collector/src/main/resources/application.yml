@@ -3,7 +3,7 @@ spring:
     name: dhan-collector
 
   datasource:
-    url: jdbc:clickhouse://localhost:8123/trading
+    url: jdbc:clickhouse://localhost:8123/trading?http_connection_provider=HTTP_URL_CONNECTION&max_insert_block_size=100000
     driver-class-name: com.clickhouse.jdbc.ClickHouseDriver
     username: admin
     password: "admin123"
@@ -21,7 +21,7 @@ spring:
 dhan:
   api:
     base-url: https://api.dhan.co/v2
-    access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiZTkxNWVhbjUiLCJicm9hZGNhc3RfZmxhZyI6dHJ1ZSwiZXhwIjoxNzgzODAyOTgzLCJ0b2tlbkNvbnN1bWVyVHlwZSI6IlBBUlRORVIiLCJkaGFuQ2xpZW50SWQiOiIxMTA0NzU2MTQ1In0.EcwNtGiDkRdXflivnulLbXIfwK-F1zYtS9vRIS6F0_1QIWAUa5EbeAaFiNF0__MAwB3iUt_fg9Z9t77BRpubSQ
+    access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiZTkxNWVhbjUiLCJicm9hZGNhc3RfZmxhZyI6dHJ1ZSwiZXhwIjoxNzg0MzAzMzk3LCJ0b2tlbkNvbnN1bWVyVHlwZSI6IlBBUlRORVIiLCJkaGFuQ2xpZW50SWQiOiIxMTA0NzU2MTQ1In0.69tn8pYnxiqSg8wnIRWx8n8y-AZHWf-H_tV7vWk6ELT_BrTi9Cb8n-gRerXegMXQ54MBA6JfsocKP-1eKiPn2A
     timeout-seconds: 30
     max-retries: 3
   collector:
@@ -54,7 +54,8 @@ scheduler:
 
 logging:
   level:
-    com.dhan.collector: DEBUG
+    com.algo.app: DEBUG
+    com.clickhouse: debug
     org.springframework: INFO
 
 server:

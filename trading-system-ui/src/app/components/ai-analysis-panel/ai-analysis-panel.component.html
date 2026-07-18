@@ -1,0 +1,256 @@
+<div class="ai-panel">
+  <!-- Configuration Section -->
+  <div class="config-section">
+    <h3 class="section-title">🤖 AI Pattern Analysis</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Timeframe</label>
+        <select [(ngModel)]="interval" class="form-control">
+          <option *ngFor="let opt of intervalOptions" [value]="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Duration (Days)</label>
+        <input 
+          type="number" 
+          [(ngModel)]="durationDays" 
+          (ngModelChange)="onDurationChange()"
+          class="form-control"
+          min="1"
+          max="3650"
+        />
+      </div>
+
+      <div class="form-group">
+        <label>Start Date</label>
+        <input 
+          type="date" 
+          [(ngModel)]="startDate" 
+          class="form-control"
+        />
+      </div>
+
+      <div class="form-group">
+        <label>End Date</label>
+        <input 
+          type="date" 
+          [(ngModel)]="endDate" 
+          class="form-control"
+        />
+      </div>
+
+      <div class="form-group full-width">
+        <label>Capital Limit (₹)</label>
+        <input 
+          type="number" 
+          [(ngModel)]="capitalLimit" 
+          class="form-control"
+          min="1000"
+          step="1000"
+        />
+      </div>
+    </div>
+
+    <button 
+      class="btn-analyze"
+      (click)="analyzePatterns()"
+      [disabled]="isAnalyzing || !securityId"
+    >
+      <span *ngIf="!isAnalyzing">🔍 Analyze Patterns</span>
+      <span *ngIf="isAnalyzing">⏳ Analyzing...</span>
+    </button>
+
+    <div *ngIf="errorMessage" class="error-message">
+      {{ errorMessage }}
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  <div *ngIf="analysisResult" class="results-section">
+    
+    <!-- Top Patterns Summary -->
+    <div class="patterns-summary">
+      <h4 class="subsection-title">🎯 Top Performing Patterns</h4>
+      <div class="pattern-cards">
+        <div 
+          *ngFor="let pattern of analysisResult.topPatterns" 
+          class="pattern-card"
+          [class.bullish]="pattern.averageReturn > 0"
+          [class.bearish]="pattern.averageReturn < 0"
+        >
+          <div class="pattern-name">{{ pattern.patternType }}</div>
+          <div class="pattern-stats">
+            <div class="stat">
+              <span class="stat-label">Occurrences</span>
+              <span class="stat-value">{{ pattern.occurrences }}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Success Rate</span>
+              <span class="stat-value">{{ pattern.successRate.toFixed(1) }}%</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Avg Return</span>
+              <span class="stat-value" [class.positive]="pattern.averageReturn > 0" [class.negative]="pattern.averageReturn < 0">
+                {{ formatPercent(pattern.averageReturn) }}
+              </span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Total Return</span>
+              <span class="stat-value" [class.positive]="pattern.totalReturn > 0" [class.negative]="pattern.totalReturn < 0">
+                {{ formatCurrency(pattern.totalReturn) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metrics Dashboard -->
+    <div class="metrics-dashboard">
+      <h4 class="subsection-title">📊 Backtest Metrics</h4>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-icon">💰</div>
+          <div class="metric-content">
+            <div class="metric-label">Total Return</div>
+            <div class="metric-value" [class.positive]="analysisResult.metrics.totalReturn > 0" [class.negative]="analysisResult.metrics.totalReturn < 0">
+              {{ formatPercent(analysisResult.metrics.totalReturn) }}
+            </div>
+            <div class="metric-subvalue">{{ formatCurrency(analysisResult.metrics.totalReturnAmount) }}</div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">📈</div>
+          <div class="metric-content">
+            <div class="metric-label">Total Trades</div>
+            <div class="metric-value">{{ analysisResult.metrics.totalTrades }}</div>
+            <div class="metric-subvalue">
+              {{ analysisResult.metrics.winningTrades }}W / {{ analysisResult.metrics.losingTrades }}L
+            </div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">🎯</div>
+          <div class="metric-content">
+            <div class="metric-label">Win Rate</div>
+            <div class="metric-value">{{ analysisResult.metrics.winRate.toFixed(1) }}%</div>
+            <div class="metric-subvalue">Avg: {{ formatPercent(analysisResult.metrics.averageReturn) }}</div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">📉</div>
+          <div class="metric-content">
+            <div class="metric-label">Max Drawdown</div>
+            <div class="metric-value negative">{{ formatPercent(analysisResult.metrics.maxDrawdown) }}</div>
+            <div class="metric-subvalue">{{ formatCurrency(analysisResult.metrics.maxDrawdownAmount) }}</div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">🔥</div>
+          <div class="metric-content">
+            <div class="metric-label">Max Win Streak</div>
+            <div class="metric-value positive">{{ analysisResult.metrics.maxConsecutiveWins }}</div>
+            <div class="metric-subvalue">Avg: {{ analysisResult.metrics.averageWinStreak.toFixed(1) }}</div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">❄️</div>
+          <div class="metric-content">
+            <div class="metric-label">Max Loss Streak</div>
+            <div class="metric-value negative">{{ analysisResult.metrics.maxConsecutiveLosses }}</div>
+            <div class="metric-subvalue">Avg: {{ analysisResult.metrics.averageLossStreak.toFixed(1) }}</div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon">⚖️</div>
+          <div class="metric-content">
+            <div class="metric-label">Profit Factor</div>
+            <div class="metric-value" [class.positive]="analysisResult.metrics.profitFactor > 1">
+              {{ analysisResult.metrics.profitFactor.toFixed(2) }}
+            </div>
+            <div class="metric-subvalue">
+              {{ analysisResult.metrics.profitFactor > 1 ? 'Profitable' : 'Loss-making' }}
+            </div>
+          </div>
+        </div>
+
+        <div class="metric-card" *ngIf="analysisResult.metrics.sharpeRatio">
+          <div class="metric-icon">📐</div>
+          <div class="metric-content">
+            <div class="metric-label">Sharpe Ratio</div>
+            <div class="metric-value">{{ analysisResult.metrics.sharpeRatio.toFixed(2) }}</div>
+            <div class="metric-subvalue">Risk-adjusted return</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Suggestions -->
+    <div class="suggestions-section" *ngIf="analysisResult.suggestions.length > 0">
+      <h4 class="subsection-title">💡 AI Suggestions</h4>
+      <div class="suggestions-list">
+        <div 
+          *ngFor="let suggestion of analysisResult.suggestions" 
+          class="suggestion-card"
+          [class.high-priority]="suggestion.priority === 'high'"
+          [class.medium-priority]="suggestion.priority === 'medium'"
+          [class.low-priority]="suggestion.priority === 'low'"
+        >
+          <div class="suggestion-header">
+            <span class="suggestion-icon">{{ getSuggestionIcon(suggestion.type) }}</span>
+            <span class="suggestion-title">{{ suggestion.title }}</span>
+          </div>
+          <div class="suggestion-message">{{ suggestion.message }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Strategy Recommendation -->
+    <div class="strategy-section">
+      <h4 class="subsection-title">🎲 Strategy Recommendation</h4>
+      <div class="strategy-recommendation">
+        {{ analysisResult.strategyRecommendation }}
+      </div>
+      <button 
+        class="btn-generate-strategy"
+        (click)="generateStrategy()"
+      >
+        ⚡ Generate Strategy Code
+      </button>
+    </div>
+
+    <!-- Detected Patterns List -->
+    <div class="detected-patterns">
+      <h4 class="subsection-title">🔍 All Detected Patterns ({{ analysisResult.patterns.length }})</h4>
+      <div class="patterns-list">
+        <div 
+          *ngFor="let pattern of analysisResult.patterns" 
+          class="detected-pattern"
+          [class.bullish]="pattern.direction === 'bullish'"
+          [class.bearish]="pattern.direction === 'bearish'"
+        >
+          <div class="pattern-header">
+            <span class="pattern-type">{{ pattern.patternType }}</span>
+            <span class="pattern-confidence">{{ pattern.confidence }}% confidence</span>
+          </div>
+          <div class="pattern-details">
+            <span class="pattern-direction" [class]="pattern.direction">
+              {{ pattern.direction }}
+            </span>
+            <span class="pattern-description">{{ pattern.description }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
