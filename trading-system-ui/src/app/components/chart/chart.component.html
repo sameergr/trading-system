@@ -45,6 +45,10 @@
       @if (loading()) { <span class="spinner"></span> } @else { ↻ }
       Load
     </button>
+
+    <button class="btn-ai-toggle" (click)="toggleAIPanel()" title="Toggle AI Analysis">
+      🤖 AI Analysis
+    </button>
   </header>
 
   <!-- ── OHLCV tooltip strip ───────────────────────────────────────────── -->
@@ -70,6 +74,24 @@
 
   <!-- ── Chart area ────────────────────────────────────────────────────── -->
   <div class="chart-area">
+
+    <!-- AI Analysis Side Panel -->
+    @if (showAIPanel()) {
+      <div class="ai-side-panel">
+        <div class="ai-panel-header">
+          <h3>AI Pattern Analysis</h3>
+          <button class="btn-close-panel" (click)="toggleAIPanel()" title="Close">×</button>
+        </div>
+        <div class="ai-panel-content">
+          <ai-analysis-panel
+            [securityId]="selectedInstrument()?.securityId ?? 0"
+            [securityName]="selectedInstrument()?.symbol ?? ''"
+            (patternsDetected)="onPatternsDetected($event)"
+            (analysisComplete)="onAnalysisComplete($event)"
+          />
+        </div>
+      </div>
+    }
 
     <!-- Navigation toolbar — overlaid on top-right of chart -->
     <div class="nav-toolbar">

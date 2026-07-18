@@ -7,17 +7,19 @@ import { FormsModule } from '@angular/forms';
 import {
   createChart, IChartApi, ISeriesApi,
   ColorType, CrosshairMode,
-  CandlestickData, HistogramData, Time
+  CandlestickData, HistogramData, Time, SeriesMarker
 } from 'lightweight-charts';
 import { ChartApiService } from '../../services/chart-api.service';
 import { Candle, Instrument, Interval, INTERVALS } from '../../models/chart.models';
+import { DetectedPattern, PatternAnalysisResponse } from '../../models/ai-analysis.models';
 import { NavComponent } from '../shared/nav/nav.component';
+import { AiAnalysisPanelComponent } from '../ai-analysis-panel/ai-analysis-panel.component';
 import { Subject, takeUntil, of, catchError } from 'rxjs';
 
 @Component({
   selector: 'app-chart',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavComponent],
+  imports: [CommonModule, FormsModule, NavComponent, AiAnalysisPanelComponent],
   templateUrl: './chart.component.html',
   styleUrls: ['./chart.component.scss']
 })
@@ -39,6 +41,10 @@ export class ChartComponent implements OnInit, AfterViewInit, OnDestroy {
 
   hoveredCandle = signal<Candle | null>(null);
   lastCandle    = signal<Candle | null>(null);
+
+  // AI Panel
+  showAIPanel = signal(false);
+  currentPatterns: DetectedPattern[] = [];
 
   readonly intervals = INTERVALS;
 
@@ -364,5 +370,113 @@ export class ChartComponent implements OnInit, AfterViewInit, OnDestroy {
   get isPositive(): boolean {
     const c = this.displayCandle;
     return c ? c.close >= c.open : true;
+  }
+
+  // ── AI Panel Integration ──────────────────────────────────────────────────
+
+  toggleAIPanel() {
+    this.showAIPanel.update(show => !show);
+    if (!this.showAIPanel()) {
+      this.clearPatterns();
+    }
+  }
+
+  onPatternsDetected(patterns: DetectedPattern[]) {
+    this.currentPatterns = patterns;
+    this.drawPatterns(patterns);
+  }
+
+  onAnalysisComplete(response: PatternAnalysisResponse) {
+    console.log('Analysis complete:', response);
+    // Additional handling if needed (e.g., show notification)
+  }
+
+  // ── Pattern Drawing ───────────────────────────────────────────────────────
+  
+  /**
+   * Draw detected patterns on the chart as markers and shapes
+   */
+  drawPatterns(patterns: DetectedPattern[]) {
+    if (!this.candleSeries || patterns.length === 0) return;
+
+    const markers: SeriesMarker<Time>[] = [];
+
+    patterns.forEach(pattern => {
+      // Add start marker
+      markers.push({
+        time: pattern.startTime as Time,
+        position: pattern.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+        color: pattern.direction === 'bullish' ? this.theme.green : this.theme.red,
+        shape: pattern.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
+        text: `${pattern.patternType} (${pattern.confidence}%)`,
+        size: 1.5
+      });
+
+      // Add end marker if pattern completed
+      if (pattern.endTime > pattern.startTime) {
+        markers.push({
+          time: pattern.endTime as Time,
+          position: pattern.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+          color: pattern.direction === 'bullish' ? this.theme.green : this.theme.red,
+          shape: 'circle',
+          size: 0.8
+        });
+      }
+
+      // Add key point markers
+      pattern.keyPoints.forEach(point => {
+        markers.push({
+          time: point.time as Time,
+          position: 'inBar',
+          color: this.theme.blue,
+          shape: 'circle',
+          text: point.label,
+          size: 0.5
+        });
+      });
+    });
+
+    // Sort markers by time
+    markers.sort((a, b) => (a.time as number) - (b.time as number));
+
+    this.candleSeries.setMarkers(markers);
+  }
+
+  /**
+   * Clear all pattern markers from the chart
+   */
+  clearPatterns() {
+    if (!this.candleSeries) return;
+    this.candleSeries.setMarkers([]);
+  }
+
+  /**
+   * Highlight a specific pattern on the chart
+   */
+  highlightPattern(pattern: DetectedPattern) {
+    if (!this.chart || !this.candleSeries) return;
+
+    // Zoom to pattern time range with some padding
+    const ts = this.chart.timeScale();
+    const startIndex = pattern.startIndex;
+    const endIndex = pattern.endIndex;
+    const padding = Math.max(10, (endIndex - startIndex) * 0.2);
+    
+    ts.setVisibleLogicalRange({
+      from: startIndex - padding,
+      to: endIndex + padding
+    });
+
+    // Draw marker for this pattern
+    const marker: SeriesMarker<Time> = {
+      time: pattern.startTime as Time,
+      position: pattern.direction === 'bullish' ? 'belowBar' : 'aboveBar',
+      color: this.theme.blue,
+      shape: pattern.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
+      text: `${pattern.patternType} - ${pattern.confidence}%`,
+      size: 2
+    };
+
+    this.candleSeries.setMarkers([marker]);
   }
 }
